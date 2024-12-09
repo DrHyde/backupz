@@ -228,7 +228,10 @@ sub _execute (@command) {
 sub print_log (@lines) {
     my $logfh = $config->{logfh};
     foreach my $line (grep { /\S/ } @lines) {
-        print $logfh "$line\n";
+        my @time_bits = localtime();
+        $time_bits[5] += 1900;
+        $time_bits[4]++;
+        print $logfh sprintf("%d-%02d-%02dT%02d:%02d:%02d: %s\n", @time_bits[5, 4, 3, 2, 1, 0], $line);
         print "$line\n" if($verbose);
     }
 }
