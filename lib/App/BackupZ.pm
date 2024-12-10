@@ -13,6 +13,7 @@ my %verb_handlers = (
     snapshot    => \&snapshot,
     help        => \&help,
     sample_conf => \&sample_conf,
+    list        => \&list,
 );
 my $config;
 my $verbose = 0;
@@ -214,6 +215,71 @@ sub _zfs_snapshot_exists ($snapshot) {
     return ($exit == 0);
 }
 
+sub list ($args, $words) {
+    my @command = do {
+        no warnings 'qw';
+        qw(zfs list -H -p -t all -o name,used,avail,refer,creation)
+    };
+    my ($stdout, $stderr, $exit) = _execute(@command);
+
+    if($exit) {
+        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
+        print_log(
+            "Error listing snapshots",
+            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
+            "  Exit code: $exit",
+            "  STDOUT:", $stdout,
+            "  STDERR:", $stderr,
+        );
+        exit(1);
+    }
+
+    my @snapshots = map { [
+        split(/\t/, $_)
+    ] } grep {
+        /^$config->{dataset}\@/
+    } split(/\n/, $stdout);
+    my $sync = (map { [
+        split(/\t/, $_)
+    ] } grep {
+        /^$config->{dataset}/ && 
+        $_ !~ /^$config->{dataset}\@/
+    } split(/\n/, $stdout))[0];
+
+    print "Sync:\n";
+    print "  "._dataset_to_mountpoint($sync->[0]).":\n";
+    print "     Used: "._human_readable($sync->[1])."\n";
+    print "    Avail: "._human_readable($sync->[2])."\n";
+    print "\nSnapshots:\n";
+    foreach my $snapshot (sort { $b->[4] <=> $a->[4] } @snapshots) {
+        print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
+        print "       Used: "._human_readable($snapshot->[1])."\n";
+        print "      Refer: "._human_readable($snapshot->[3])."\n";
+        print "    Created: "._epoch_to_iso8601($snapshot->[4])."\n";
+    }
+}
+
+sub _human_readable ($bytes) {
+    if($bytes < 2**10) {
+        return "$bytes B";
+    } elsif($bytes < 2**20) {
+        return sprintf("%.2f KiB", $bytes/1024);
+    } elsif($bytes < 2**30) {
+        return sprintf("%.2f MiB", $bytes/(1024*1024));
+    } elsif($bytes < 2**40) {
+        return sprintf("%.2f GiB", $bytes/(1024*1024*1024));
+    } else {
+        return sprintf("%.2f TiB", $bytes/(1024*1024*1024*1024));
+    }
+}
+
+sub _epoch_to_iso8601 ($epoch) {
+    my @time_bits = localtime($epoch);
+    $time_bits[5] += 1900;
+    $time_bits[4]++;
+    return sprintf("%d-%02d-%02dT%02d:%02d:%02d", @time_bits[5, 4, 3, 2, 1, 0]);
+}
+
 sub _execute (@command) {
     my ($stdout, $stderr, $exit) = capture {
         my $status = system(@command);
@@ -228,10 +294,7 @@ sub _execute (@command) {
 sub print_log (@lines) {
     my $logfh = $config->{logfh};
     foreach my $line (grep { /\S/ } @lines) {
-        my @time_bits = localtime();
-        $time_bits[5] += 1900;
-        $time_bits[4]++;
-        print $logfh sprintf("%d-%02d-%02dT%02d:%02d:%02d: %s\n", @time_bits[5, 4, 3, 2, 1, 0], $line);
+        print $logfh sprintf("%s: %s\n", _epoch_to_iso8601(time()), $line);
         print "$line\n" if($verbose);
     }
 }
