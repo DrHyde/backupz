@@ -17,6 +17,7 @@ my %verb_handlers = (
 );
 my $config;
 my $verbose = 0;
+my $have_logged;
 
 sub run ($verb, @args) {
     my $words = [];
@@ -45,6 +46,7 @@ sub run ($verb, @args) {
     } else {
         err_help("Unknown verb: $verb");
     }
+    _exit(0);
 }
 
 sub _load_config ($file) {
@@ -180,9 +182,10 @@ sub _zfs_rename_snapshot ($from, $to) {
             "  STDOUT:", $stdout,
             "  STDERR:", $stderr,
         );
-        exit(1);
+        _exit(1);
     }
 }
+
 sub _zfs_destroy_snapshot ($snapshot) {
     my @command = (qw(zfs destroy), "$config->{dataset}\@$snapshot");
     my ($stdout, $stderr, $exit) = _execute(@command);
@@ -196,7 +199,7 @@ sub _zfs_destroy_snapshot ($snapshot) {
             "  STDOUT:", $stdout,
             "  STDERR:", $stderr,
         );
-        exit(1);
+        _exit(1);
     }
 }
 
@@ -213,7 +216,7 @@ sub _zfs_get_snapshot_names ($prefix = '') {
             "  STDOUT:", $stdout,
             "  STDERR:", $stderr,
         );
-        exit(1);
+        _exit(1);
     }
 
     my @all_snapshots = map {
@@ -241,7 +244,7 @@ sub list ($args, $words) {
             "  STDOUT:", $stdout,
             "  STDERR:", $stderr,
         );
-        exit(1);
+        _exit(1);
     }
 
     my @snapshots = map {
@@ -254,7 +257,7 @@ sub list ($args, $words) {
     my $sync = (map { [
         split(/\t/, $_)
     ] } grep {
-        /^$config->{dataset}/ && 
+        /^$config->{dataset}/ &&
         $_ !~ /^$config->{dataset}\@/
     } split(/\n/, $stdout))[0];
 
@@ -316,6 +319,14 @@ sub _epoch_to_iso8601 ($epoch) {
     return sprintf("%d-%02d-%02dT%02d:%02d:%02d", @time_bits[5, 4, 3, 2, 1, 0]);
 }
 
+sub _exit ($status) {
+    if($have_logged) {
+        my $logfh = $config->{logfh};
+        print $logfh "\n";
+    }
+    exit($status);
+}
+
 sub _execute (@command) {
     my ($stdout, $stderr, $exit) = capture {
         my $status = system(@command);
@@ -332,13 +343,14 @@ sub print_log (@lines) {
     foreach my $line (grep { /\S/ } @lines) {
         print $logfh sprintf("%s: %s\n", _epoch_to_iso8601(time()), $line);
         print "$line\n" if($verbose);
+        $have_logged = 1;
     }
 }
 
 sub err {
     my $msg = shift;
     print STDERR "$msg\n";
-    exit(1);
+    _exit(1);
 }
 
 sub err_help {
@@ -348,7 +360,7 @@ sub err_help {
     print "$msg\n\n" if($msg);
     print _help();
 
-    exit(1);
+    _exit(1);
 }
 
 sub help {
@@ -357,7 +369,7 @@ sub help {
     print "$msg\n\n" if($msg);
     print _help();
 
-    exit(0);
+    _exit(0);
 }
 
 sub sample_conf {
