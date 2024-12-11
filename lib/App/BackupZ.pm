@@ -124,13 +124,9 @@ sub sync ($args, $words) {
         my ($stdout, $stderr, $exit) = _execute(@command);
 
         if($exit) {
-            ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-            print_log(
+            _log_execution_error(
                 "Error syncing $source to $destination",
-                "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-                "  Exit code: $exit",
-                "  STDOUT:", $stdout,
-                "  STDERR:", $stderr,
+                \@command, $stdout, $stderr, $exit
             );
         }
     }
@@ -158,13 +154,9 @@ sub snapshot ($args, $words) {
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
-        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-        print_log(
+        _log_execution_error(
             "Error creating snapshot: $name",
-            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-            "  Exit code: $exit",
-            "  STDOUT:", $stdout,
-            "  STDERR:", $stderr,
+            \@command, $stdout, $stderr, $exit
         );
     }
 }
@@ -174,13 +166,9 @@ sub _zfs_rename_snapshot ($from, $to) {
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
-        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-        print_log(
+        _log_execution_error(
             "Error renaming snapshot: $from to $to",
-            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-            "  Exit code: $exit",
-            "  STDOUT:", $stdout,
-            "  STDERR:", $stderr,
+            \@command, $stdout, $stderr, $exit
         );
         _exit(1);
     }
@@ -191,13 +179,9 @@ sub _zfs_destroy_snapshot ($snapshot) {
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
-        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-        print_log(
+        _log_execution_error(
             "Error destroying snapshot: $snapshot",
-            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-            "  Exit code: $exit",
-            "  STDOUT:", $stdout,
-            "  STDERR:", $stderr,
+            \@command, $stdout, $stderr, $exit
         );
         _exit(1);
     }
@@ -208,13 +192,9 @@ sub _zfs_get_snapshot_names ($prefix = '') {
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
-        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-        print_log(
+        _log_execution_error(
             "Error getting snapshot names",
-            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-            "  Exit code: $exit",
-            "  STDOUT:", $stdout,
-            "  STDERR:", $stderr,
+            \@command, $stdout, $stderr, $exit
         );
         _exit(1);
     }
@@ -236,13 +216,9 @@ sub list ($args, $words) {
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
-        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
-        print_log(
+        _log_execution_error(
             "Error listing snapshots",
-            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
-            "  Exit code: $exit",
-            "  STDOUT:", $stdout,
-            "  STDERR:", $stderr,
+            \@command, $stdout, $stderr, $exit
         );
         _exit(1);
     }
@@ -310,6 +286,17 @@ sub _human_readable ($bytes) {
         $result = sprintf("%.2f PiB", $bytes/(1024*1024*1024*1024*1024));
     }
     return sprintf("%-14s ", $result);
+}
+
+sub _log_execution_error ($msg, $command, $stdout, $stderr, $exit) {
+    ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
+    print_log(
+        "$msg",
+        "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @{$command})."]",
+        "  Exit code: $exit",
+        "  STDOUT:", $stdout,
+        "  STDERR:", $stderr,
+    );
 }
 
 sub _epoch_to_iso8601 ($epoch) {
