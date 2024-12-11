@@ -117,7 +117,7 @@ sub sync ($args, $words) {
             err_help("Unknown command part: $part");
         } @{$command_parts};
 
-        print_log("Syncing $source to $destination") if($verbose);
+        print_log("Syncing $source to $destination");
 
         my ($stdout, $stderr, $exit) = _execute(@command);
 
@@ -142,24 +142,17 @@ sub snapshot ($args, $words) {
         err("Unknown retention level: $name");
     }
 
-    my $max_keep = ($retentions->{$name}->{keep} || ~0) - 1;
+    my $keep = $retentions->{$name}->{keep};
 
-    if(_zfs_snapshot_exists("$name.$max_keep")) {
-        print_log("Snapshot $name.$max_keep already exists, destroying") if($verbose);
-        _zfs_destroy_snapshot("$name.$max_keep");
-    }
-    foreach my $i (reverse(0 .. $max_keep-1)) {
-        my $from = "$name.$i";
-        my $to = "$name.".($i+1);
-
-        if(_zfs_snapshot_exists($from)) {
-            print_log("Renaming snapshot $from to $to") if($verbose);
-            _zfs_rename_snapshot($from, $to);
-        }
+    my @existing_snapshots = _zfs_get_snapshot_names($name);
+    if(@existing_snapshots == $keep) {
+        print_log("Got $keep '$name' snapshots, pruning $existing_snapshots[0]");
+        _zfs_destroy_snapshot($existing_snapshots[0]);
     }
 
-    my @command = (qw(zfs snapshot), "$config->{dataset}\@$name.0");
-    print_log("Creating snapshot: $name.0") if($verbose);
+    my $new_snapshot_name = "$config->{dataset}\@$name:"._epoch_to_iso8601(time());
+    my @command = (qw(zfs snapshot), $new_snapshot_name);
+    print_log("Creating snapshot: $new_snapshot_name");
     my ($stdout, $stderr, $exit) = _execute(@command);
 
     if($exit) {
@@ -207,12 +200,29 @@ sub _zfs_destroy_snapshot ($snapshot) {
     }
 }
 
-sub _zfs_snapshot_exists ($snapshot) {
-    my (undef, undef, $exit) = _execute(
-        qw(zfs list -H -t snapshot -o name), "$config->{dataset}\@$snapshot"
-    );
+sub _zfs_get_snapshot_names ($prefix = '') {
+    my @command = qw(zfs list -H -t snapshot -o name);
+    my ($stdout, $stderr, $exit) = _execute(@command);
 
-    return ($exit == 0);
+    if($exit) {
+        ($stdout, $stderr) = map { s/^/    /mgr } ($stdout, $stderr);
+        print_log(
+            "Error getting snapshot names",
+            "  Command: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]",
+            "  Exit code: $exit",
+            "  STDOUT:", $stdout,
+            "  STDERR:", $stderr,
+        );
+        exit(1);
+    }
+
+    my @all_snapshots = map {
+        s/^$config->{dataset}\@//r
+    } grep {
+        /^$config->{dataset}\@$prefix:/
+    } split(/\n/, $stdout);
+
+    return sort @all_snapshots;
 }
 
 sub list ($args, $words) {
@@ -248,29 +258,34 @@ sub list ($args, $words) {
 
     print "Sync:\n";
     print "  "._dataset_to_mountpoint($sync->[0]).":\n";
-    print "     Used: "._human_readable($sync->[1])."\n";
-    print "    Avail: "._human_readable($sync->[2])."\n";
+    print "    ".
+          "Used: "._human_readable($sync->[1]).
+          "Avail: "._human_readable($sync->[2])."\n";
     print "\nSnapshots:\n";
     foreach my $snapshot (sort { $b->[4] <=> $a->[4] } @snapshots) {
         print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
-        print "       Used: "._human_readable($snapshot->[1])."\n";
-        print "      Refer: "._human_readable($snapshot->[3])."\n";
-        print "    Created: "._epoch_to_iso8601($snapshot->[4])."\n";
+        print "    ".
+              "Used: "._human_readable($snapshot->[1]).
+              "Refer: "._human_readable($snapshot->[3])."\n";
     }
 }
 
 sub _human_readable ($bytes) {
+    my $result;
     if($bytes < 2**10) {
-        return "$bytes B";
+        $result = "$bytes B";
     } elsif($bytes < 2**20) {
-        return sprintf("%.2f KiB", $bytes/1024);
+        $result = sprintf("%.2f KiB", $bytes/1024);
     } elsif($bytes < 2**30) {
-        return sprintf("%.2f MiB", $bytes/(1024*1024));
+        $result = sprintf("%.2f MiB", $bytes/(1024*1024));
     } elsif($bytes < 2**40) {
-        return sprintf("%.2f GiB", $bytes/(1024*1024*1024));
+        $result = sprintf("%.2f GiB", $bytes/(1024*1024*1024));
+    } elsif($bytes < 2**50) {
+        $result = sprintf("%.2f TiB", $bytes/(1024*1024*1024*1024));
     } else {
-        return sprintf("%.2f TiB", $bytes/(1024*1024*1024*1024));
+        $result = sprintf("%.2f PiB", $bytes/(1024*1024*1024*1024*1024));
     }
+    return sprintf("%-14s ", $result);
 }
 
 sub _epoch_to_iso8601 ($epoch) {
