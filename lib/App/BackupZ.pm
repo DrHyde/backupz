@@ -244,9 +244,11 @@ sub list ($args, $words) {
         exit(1);
     }
 
-    my @snapshots = map { [
-        split(/\t/, $_)
-    ] } grep {
+    my @snapshots = map {
+        my $t = [split(/\t/, $_)];
+        $t->[0] =~ s/.*@//;
+        $t
+    } grep {
         /^$config->{dataset}\@/
     } split(/\n/, $stdout);
     my $sync = (map { [
@@ -261,8 +263,27 @@ sub list ($args, $words) {
     print "    ".
           "Used: "._human_readable($sync->[1]).
           "Avail: "._human_readable($sync->[2])."\n";
-    print "\nSnapshots:\n";
-    foreach my $snapshot (sort { $b->[4] <=> $a->[4] } @snapshots) {
+    print "\nManaged snapshots:\n";
+    foreach my $snapshot (
+        sort {
+            $b->[4] <=> $a->[4]
+        } grep {
+            exists($config->{retentions}->{$_->[0] =~ s/:.*//r})
+        } @snapshots
+    ) {
+        print "  $snapshot->[0]:\n";
+        print "    ".
+              "Used: "._human_readable($snapshot->[1]).
+              "Refer: "._human_readable($snapshot->[3])."\n";
+    }
+    print "\nUnmanaged snapshots:\n";
+    foreach my $snapshot (
+        sort {
+            $b->[4] <=> $a->[4]
+        } grep {
+            !exists($config->{retentions}->{$_->[0] =~ s/:.*//r})
+        } @snapshots
+    ) {
         print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
         print "    ".
               "Used: "._human_readable($snapshot->[1]).
