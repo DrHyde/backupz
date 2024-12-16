@@ -220,13 +220,6 @@ sub list ($args, $words) {
         exit(1);
     }
 
-    my @snapshots = map {
-        my $t = [split(/\t/, $_)];
-        $t->[0] =~ s/.*@//;
-        $t
-    } grep {
-        /^$config->{dataset}\@/
-    } split(/\n/, $stdout);
     my $sync = (map { [
         split(/\t/, $_)
     ] } grep {
@@ -234,36 +227,43 @@ sub list ($args, $words) {
         $_ !~ /^$config->{dataset}\@/
     } split(/\n/, $stdout))[0];
 
+    my @snapshots = sort {
+        $b->[4] <=> $a->[4]
+    } map {
+        my $t = [split(/\t/, $_)];
+        $t->[0] =~ s/.*@//;
+        $t
+    } grep {
+        /^$config->{dataset}\@/
+    } split(/\n/, $stdout);
+
+    my @managed_snapshots   = grep { exists($config->{retentions}->{$_->[0] =~ s/:.*//r})  } @snapshots;
+    my @unmanaged_snapshots = grep { !exists($config->{retentions}->{$_->[0] =~ s/:.*//r}) } @snapshots;
+
     print "Sync:\n";
     print "  "._dataset_to_mountpoint($sync->[0]).":\n";
     print "    ".
           "Used: "._human_readable($sync->[1]).
           "Avail: "._human_readable($sync->[2])."\n";
-    print "\nManaged snapshots:\n";
-    foreach my $snapshot (
-        sort {
-            $b->[4] <=> $a->[4]
-        } grep {
-            exists($config->{retentions}->{$_->[0] =~ s/:.*//r})
-        } @snapshots
-    ) {
-        print "  $snapshot->[0]:\n";
-        print "    ".
-              "Used: "._human_readable($snapshot->[1]).
-              "Refer: "._human_readable($snapshot->[3])."\n";
+
+    if(@managed_snapshots) {
+        print "\nManaged snapshots:\n";
+        foreach my $snapshot (@managed_snapshots) {
+            print "  $snapshot->[0]:\n";
+            print "    ".
+                  "Used: "._human_readable($snapshot->[1]).
+                  "Refer: "._human_readable($snapshot->[3])."\n";
+        }
     }
-    print "\nUnmanaged snapshots:\n";
-    foreach my $snapshot (
-        sort {
-            $b->[4] <=> $a->[4]
-        } grep {
-            !exists($config->{retentions}->{$_->[0] =~ s/:.*//r})
-        } @snapshots
-    ) {
-        print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
-        print "    ".
-              "Used: "._human_readable($snapshot->[1]).
-              "Refer: "._human_readable($snapshot->[3])."\n";
+
+    if(@unmanaged_snapshots) {
+        print "\nUnmanaged snapshots:\n";
+        foreach my $snapshot (@unmanaged_snapshots) {
+            print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
+            print "    ".
+                  "Used: "._human_readable($snapshot->[1]).
+                  "Refer: "._human_readable($snapshot->[3])."\n";
+        }
     }
 }
 
