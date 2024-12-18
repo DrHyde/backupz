@@ -18,7 +18,7 @@ my %verb_handlers = (
 my $config;
 my $verbose = 0;
 
-sub run ($verb, @args) {
+sub run (@args) {
     my $words = [];
     my $args = {};
 
@@ -39,6 +39,8 @@ sub run ($verb, @args) {
             push @$words, $arg;
         }
     }
+
+    my $verb = shift(@{$words}) || err_help("No verb specified");
 
     if(exists($verb_handlers{$verb})) {
         $verb_handlers{$verb}->($args, $words);
@@ -396,11 +398,12 @@ sub sample_conf {
 
 sub _help {
 '
-Usage: backupz [verb] [options]
+Usage: backupz [global options] <verb> [verb options]
 
 Verbs:
     sync          Pull data from all the configured sources
     snapshot      Create a snapshot of the backup
+    list          List all snapshots
     help          Display this help
     sample_conf   Show a sample configuration file
 
