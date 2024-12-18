@@ -304,6 +304,9 @@ sub _epoch_to_iso8601 ($epoch) {
 }
 
 sub _execute (@command) {
+    print_log("Executing: [".join(', ', map { "'".(s/'/\\'/gr)."'" } @command)."]")
+        if($verbose > 1);
+
     my ($stdout, $stderr, $exit) = capture {
         my $status = system(@command);
         $status >>= 8 unless($status == -1);
