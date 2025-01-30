@@ -43,6 +43,7 @@ sub run (@args) {
     my $verb = shift(@{$words}) || err_help("No verb specified");
 
     if(exists($verb_handlers{$verb})) {
+        err_help("No config file specified") unless($config || $verb eq 'help');
         $verb_handlers{$verb}->($args, $words);
     } else {
         err_help("Unknown verb: $verb");
@@ -208,63 +209,90 @@ sub _zfs_get_snapshot_names ($prefix = '') {
 }
 
 sub list ($args, $words) {
-    my @command = do {
-        no warnings 'qw';
-        qw(zfs list -H -p -t all -o name,used,avail,refer,creation)
-    };
-    my ($stdout, $stderr, $exit) = _execute(@command);
-
-    if($exit) {
-        _log_execution_error(
-            "Error listing snapshots",
-            \@command, $stdout, $stderr, $exit
-        );
-        exit(1);
-    }
-
-    my $sync = (map { [
-        split(/\t/, $_)
-    ] } grep {
-        /^$config->{dataset}/ && 
-        $_ !~ /^$config->{dataset}\@/
-    } split(/\n/, $stdout))[0];
-
-    my @snapshots = sort {
-        $b->[4] <=> $a->[4]
-    } map {
-        my $t = [split(/\t/, $_)];
-        $t->[0] =~ s/.*@//;
-        $t
-    } grep {
-        /^$config->{dataset}\@/
-    } split(/\n/, $stdout);
-
-    my @managed_snapshots   = grep { exists($config->{retentions}->{$_->[0] =~ s/:.*//r})  } @snapshots;
-    my @unmanaged_snapshots = grep { !exists($config->{retentions}->{$_->[0] =~ s/:.*//r}) } @snapshots;
-
-    print "Sync:\n";
-    print "  "._dataset_to_mountpoint($sync->[0]).":\n";
-    print "    ".
-          "Used: "._human_readable($sync->[1]).
-          "Avail: "._human_readable($sync->[2])."\n";
-
-    if(@managed_snapshots) {
-        print "\nManaged snapshots:\n";
-        foreach my $snapshot (@managed_snapshots) {
-            print "  $snapshot->[0]:\n";
-            print "    ".
-                  "Used: "._human_readable($snapshot->[1]).
-                  "Refer: "._human_readable($snapshot->[3])."\n";
+    if($words->[0] eq 'sources') {
+        foreach my $source (keys %{$config->{sources}}) {
+            print "$source\n";
+            if($verbose) {
+                my $source_details = $config->{sources}->{$source};
+                print "  source: $source_details->{source}\n";
+                print "  destination: $source_details->{destination}\n";
+                print "  type: $source_details->{type}\n";
+            }
         }
-    }
+    } elsif($words->[0] eq 'retentions') {
+        foreach my $retention (keys %{$config->{retentions}}) {
+            print "$retention\n";
+            if($verbose) {
+                print "  keep: ";
+                if(exists($config->{retentions}->{$retention}->{keep})) {
+                    print $config->{retentions}->{$retention}->{keep};
+                } else {
+                    print "forever";
+                }
+                print "\n";
+            }
+        }
+    } elsif(exists($words->[0])) {
+        err_help("Unknown list: $words->[0]");
+    } else {
+        my @command = do {
+            no warnings 'qw';
+            qw(zfs list -H -p -t all -o name,used,avail,refer,creation)
+        };
+        my ($stdout, $stderr, $exit) = _execute(@command);
 
-    if(@unmanaged_snapshots) {
-        print "\nUnmanaged snapshots:\n";
-        foreach my $snapshot (@unmanaged_snapshots) {
-            print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
-            print "    ".
-                  "Used: "._human_readable($snapshot->[1]).
-                  "Refer: "._human_readable($snapshot->[3])."\n";
+        if($exit) {
+            _log_execution_error(
+                "Error listing snapshots",
+                \@command, $stdout, $stderr, $exit
+            );
+            exit(1);
+        }
+
+        my $sync = (map { [
+            split(/\t/, $_)
+        ] } grep {
+            /^$config->{dataset}/ && 
+            $_ !~ /^$config->{dataset}\@/
+        } split(/\n/, $stdout))[0];
+
+        my @snapshots = sort {
+            $b->[4] <=> $a->[4]
+        } map {
+            my $t = [split(/\t/, $_)];
+            $t->[0] =~ s/.*@//;
+            $t
+        } grep {
+            /^$config->{dataset}\@/
+        } split(/\n/, $stdout);
+
+        my @managed_snapshots   = grep { exists($config->{retentions}->{$_->[0] =~ s/:.*//r})  } @snapshots;
+        my @unmanaged_snapshots = grep { !exists($config->{retentions}->{$_->[0] =~ s/:.*//r}) } @snapshots;
+
+        print "Sync:\n";
+        print "  "._dataset_to_mountpoint($sync->[0]).":\n";
+        print "    ".
+              "Used: "._human_readable($sync->[1]).
+              "Avail: "._human_readable($sync->[2])."\n";
+
+        if(@managed_snapshots) {
+            print "\nManaged snapshots:\n";
+            foreach my $snapshot (@managed_snapshots) {
+                print "  $snapshot->[0]:\n";
+                print "    ".
+                      "Used: "._human_readable($snapshot->[1]).
+                      "Refer: "._human_readable($snapshot->[3])."\n";
+            }
+        }
+
+        if(@unmanaged_snapshots) {
+            print "\nUnmanaged snapshots:\n";
+            foreach my $snapshot (@unmanaged_snapshots) {
+                print "  ".($snapshot->[0] =~ s/.*@//r).":\n";
+                print "    ".
+                      "Used: "._human_readable($snapshot->[1]).
+                      "Refer: "._human_readable($snapshot->[3])."\n";
+            }
         }
     }
 }
@@ -346,7 +374,7 @@ sub err_help {
 sub help {
     my $msg = shift;
 
-    print "$msg\n\n" if($msg);
+    print "$msg\n\n" if($msg && !ref($msg));
     print _help();
 
     exit(0);
@@ -409,18 +437,22 @@ Verbs:
 
 Global options:
 
-    -c <file>   Use the specified configuration file
+    -c <file>   Mandatory, use the specified configuration file
     -v          Be verbose (repeat for more verbosity)
 
 Verb options:
 
-    sync:
+    list:
+        <no value>      list all current snapshots with their sizes
+        retentions      list all retentions levels, and (verbosely) how many
+                        to keep
+        sources         list all sources, and (verbosely) their source/destination
 
+    sync:
         <source name>   Optional, sync only the specified source.
                         Repeat for multiple sources.
 
     snapshot:
-
         <name>   Mandatory, the name of the retention level to create.
 '
 }
