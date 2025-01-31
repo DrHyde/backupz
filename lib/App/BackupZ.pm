@@ -76,8 +76,9 @@ sub _get_lock {
     print $lockfh $$;
     close $lockfh;
 
+    my $old_cleanup_sub = $cleanup_sub;
     $cleanup_sub = sub {
-        $cleanup_sub->();
+        $old_cleanup_sub->() || return 0;
         return unlink($lockfile);
     };
 }
