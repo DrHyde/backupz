@@ -18,6 +18,14 @@ my %verb_handlers = (
 my $config;
 my $verbose = 0;
 
+my $cleanup_sub = sub { 1 };
+END {
+    my $result = $cleanup_sub->();
+    if(!$result) {
+        err("Error in cleanup, check the logs: $!");
+    }
+}
+
 sub run (@args) {
     my $words = [];
     my $args = {};
@@ -44,10 +52,34 @@ sub run (@args) {
 
     if(exists($verb_handlers{$verb})) {
         err_help("No config file specified") unless($config || $verb eq 'help');
+        _get_lock() if($verb ne 'help');
         $verb_handlers{$verb}->($args, $words);
     } else {
         err_help("Unknown verb: $verb");
     }
+}
+
+sub _get_lock {
+    my $lockfile = $config->{lockfile};
+    if(-e $lockfile) {
+        if(!open(my $existing_lockfh, '<', $lockfile)) {
+            err("Lock file exists and can't be read");
+        } else {
+            chomp(my $pid = <$existing_lockfh>);
+            if(kill(0, $pid)) {
+                err("Lock file exists and so does its pid");
+            }
+        }
+    }
+
+    open(my $lockfh, '>', $lockfile) || err("Can't create lock file: $lockfile: $!");
+    print $lockfh $$;
+    close $lockfh;
+
+    $cleanup_sub = sub {
+        $cleanup_sub->();
+        return unlink($lockfile);
+    };
 }
 
 sub _load_config ($file) {
@@ -61,6 +93,7 @@ sub _load_config ($file) {
     }
 
     $config->{dataset_mountpoint} = _dataset_to_mountpoint($config->{dataset});
+    $config->{lockfile} = $config->{dataset_mountpoint}.'/backupz.lock';
 
     if($config->{logfile}) {
         open(my $logfh, '>>', $config->{logfile}) || err_help("Can't open log file: $config->{logfile}: $!");
