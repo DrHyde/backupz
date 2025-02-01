@@ -52,7 +52,7 @@ sub run (@args) {
 
     if(exists($verb_handlers{$verb})) {
         err_help("No config file specified") unless($config || $verb eq 'help');
-        _get_lock() if($verb ne 'help');
+        _get_lock() if($verb =~ /^(sync|snapshot)$/);
         $verb_handlers{$verb}->($args, $words);
     } else {
         err_help("Unknown verb: $verb");
