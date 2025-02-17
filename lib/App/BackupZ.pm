@@ -243,6 +243,9 @@ sub _zfs_get_snapshot_names ($prefix = '') {
 }
 
 sub list ($args, $words) {
+    if(!exists($words->[0])) {
+        $words->[0] = 'snapshots';
+    }
     if($words->[0] eq 'sources') {
         foreach my $source (keys %{$config->{sources}}) {
             print "$source\n";
@@ -266,9 +269,7 @@ sub list ($args, $words) {
                 print "\n";
             }
         }
-    } elsif(exists($words->[0])) {
-        err_help("Unknown list: $words->[0]");
-    } else {
+    } elsif($words->[0] eq 'snapshots') {
         my @command = do {
             no warnings 'qw';
             qw(zfs list -H -p -t all -o name,used,avail,refer,creation)
@@ -328,6 +329,8 @@ sub list ($args, $words) {
                       "Refer: "._human_readable($snapshot->[3])."\n";
             }
         }
+    } else {
+        err_help("Unknown list: $words->[0]");
     }
 }
 
@@ -477,7 +480,7 @@ Global options:
 Verb options:
 
     list:
-        <no value>      list all current snapshots with their sizes
+        snapshots       list all current snapshots with their sizes, this is the default
         retentions      list all retentions levels, and (verbosely) how many
                         to keep
         sources         list all sources, and (verbosely) their source/destination
